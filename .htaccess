@@ -1,0 +1,23 @@
+#
+# .htaccess
+# 
+#
+# 为了正常启用URL Rewrite，请将apache配置文件中“LoadModule rewrite_module modules/mod_rewrite.so”
+# 前的注释去掉，并将apache的DocumentRoot开启AllowOverride
+# 
+# 如下所示为apache下httpd.conf的代码片段：
+# <Directory "YourDocumentRoot">
+#   Options Indexes FollowSymLinks ExecCGI Includes
+#   AllowOverride All
+#   Order allow,deny
+#   Allow from all
+# </Directory>
+#
+
+#RewriteRule "^api/weizhang/cheliangdingyue$" "index.php?g=Bizapi&m=Api&a=dingyue" [H=application/x-httpd-php,QSA,L]
+RewriteRule "^api/weizhang/cheliangdingyue$" "http://ba.xiaoxian.com/index.php?g=Bizapi&m=Api&a=dingyue" [QSA,P,L]
+RewriteRule "^api/weizhang/dingdanchaxun$" "http://ba.xiaoxian.com/index.php?g=Bizapi&m=Api&a=orderQuery" [QSA,P,L]
+RewriteRule "^api/weizhang/weizhangtixing$" "http://testapi.xiaoxianlink.com/index.php?g=Bizapi&m=Api&a=dummy" [QSA,P,L]
+RewriteRule "^api/weizhang/weizhangtongji$" "http://testapi.xiaoxianlink.com/index.php?g=Bizapi&m=Api&a=dummy" [QSA,P,L]
+RewriteRule "^api/weizhang/banlijieguo$" "http://testapi.xiaoxianlink.com/index.php?g=Bizapi&m=Api&a=dummy" [QSA,P,L]
+
