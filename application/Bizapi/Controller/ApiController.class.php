@@ -124,6 +124,7 @@ class ApiController extends BizapibaseController {
 		$data ['nickname'] = $username;
 		$openid = md5($username);
 		$data ['openid'] = $openid;
+		$data ['bizid'] = $openid;
 		$data ['is_att'] = 0;
 		$data ['create_time'] = time ();
 		$data ['channel'] = self::$channel;
@@ -390,5 +391,286 @@ class ApiController extends BizapibaseController {
 		$log->write("license_number=".$license_number );
 		$this->send($car_id, mb_substr ( $car ['license_number'], 0, 2, 'utf-8' ), substr($car['license_number'], 2), $user['openid'], $bizapi['app_domain'] );
 	}
-
+	
+	function push_weizhang(){
+		$car_id = $_REQUEST ['car_id'];
+		$end_id = $_REQUEST ['end_id'];
+		$this->push($car_id, $end_id);
+	}
+	// 推送
+	function push($car_id, $end_id) {
+		$log = new Log ();
+		$log->write ( "send---------------------------$end_id", 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
+		$end_model = M ( "endorsement" );
+		$end_info = $end_model->where ( "id='$end_id'" )->find ();
+		if (empty ( $end_info )) {
+			return false;
+		}
+		$log->write ( "senddata---------------------------" . json_encode ( $end_info ), 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
+		$car_model = M ( "Car" );
+		$car_info = $car_model->where ( "id='$car_id'" )->find ();
+		$user_model = M ();
+		$user = $user_model->table ( "cw_user as u" )->join ( "cw_user_car as uc on uc.user_id = u.id" )->field ( "u.id, u.openid, u.nickname, u.channel, u.channel_key" )->where ( "uc.car_id='$car_id' and uc.is_sub = 0" )->select ();
+		$date = date ( "Y年m月d日 H:i", $end_info ['time'] );
+		foreach ( $user as $p ) {
+			if($p['channel'] == 99){
+				$bizapi_id = substr($p['channel_key'], 7);
+				$bizapi_model = M('bizapi');
+				$bizapi = $bizapi_model->where("id = $bizapi_id")->find();
+				if(!empty($bizapi)){
+					$target_url = $bizapi['app_domain'];
+					if(false === strpos($target_url, 'http://')){
+						$target_url = "http://" . $target_url;
+					}
+					$target_url = $target_url . "/api/weizhang/weizhangtixing";
+					$fuwu = $this->find_fuwu($car_id, $end_info['code'], $end_info['money'], $end_info['points'], $end_info['area']);
+					$post_data = array (
+						'chepai' => $car_info ['license_number'],
+						'weizhangtime' => $end_info['time'],
+						'weizhangcity' => $end_info['area'],
+						'weizhangcode' => $end_info['code'],
+						'fajin' => $end_info['money'],
+						'fafen' => $end_info['points'],
+						'zhangshucode' => $end_info['certificate_code'],
+						'weizhangaddress' => $end_info['address'],
+						'weizhanginfo' => $end_info['content'],
+						'weizhangoffice' => $end_info['office'],
+						'ischuli' => 'N',
+						'timestamp' => time()
+					);
+					if(!empty($fuwu)){
+						$post_data['ischuli'] = 'Y';
+						$post_data['daibanprice'] = $fuwu['so_money'];
+						$wxUrl = "";
+						if(runEnv == 'production'){
+							$wxUrl = "http://weixin.xiaoxianlink.com";
+						}
+						elseif(runEnv == 'test'){
+							$wxUrl = "http://wxdev.xiaoxianlink.com";
+						}
+						else{
+							$wxUrl = "http://wx.xiaoxian.com";
+						}
+						$post_data['daibanlink'] = $wxUrl . "/index.php?g=weixin&m=scan&a=scan_info&id=".$end_info['id']."&license_number=". urlencode($car_info ['license_number'] ) ."&so_id=".$fuwu['so_id']."&so_type=".$fuwu['so_type']."&user_id=".$p['id'];
+					}
+					$log->write ( "target_url= " . $target_url, 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
+					$log->write ( serialize ( http_build_query($post_data) ), 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
+					$dataRes = $this->request_post($target_url, http_build_query($post_data));
+					$log->write ( serialize ( $dataRes ), 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
+				}
+				$data = array (
+					"from_userid" => 0,
+					"openid" => $p ['openid'],
+					"tar_id" => $end_info ['id'],
+					"create_time" => time (),
+					"msg_type" => 2,
+					"nums" => 1,
+					"all_points" => $end_info ['points'],
+					"all_money" => $end_info ['money'] 
+				);
+				$model = M ( "Message" );
+				$model->add ( $data );
+			}
+		}
+	}
+	
+	function find_fuwu($car_id, $code, $money, $points, $area, $exclude_list = null){
+		$log = new Log ();
+		$fuwu = Array();
+		$region_model = M ( "Region" );
+		$where = array (
+				"city" => $area,
+				"level" => 2,
+				"is_dredge" => 0 
+		);
+		$region = $region_model->where ( $where )->order ( 'id' )->find ();
+		if (empty ( $region )) {
+			$city_id1 = 0;
+		}
+		else{
+			$city_id1 = $region ['id'];
+		}
+		
+		$where = array (
+				"id" => $car_id
+		);
+		$car_model = M ( "Car" );
+		$car = $car_model->where ( $where )->find ();
+		$l_nums = mb_substr ( $car ['license_number'], 0, 2, 'utf-8' );
+		$region_model = M ( "Region" );
+		$region = $region_model->where ( "nums = '$l_nums'" )->find ();
+		$region = $region_model->where ( "city = '{$region['city']}'" )->order ( "id" )->find ();
+		if (empty ( $region )) {
+			$city_id2 = 0;
+		} else {
+			$city_id2 = $region ['id'];
+		}
+		
+		$violation_model = M("violation");
+		$violation = $violation_model->field("money, points")->where("code = '$code'")->find();
+		if(empty($violation) || $violation['state'] == 1){
+			return $fuwu;
+		}
+		
+		$where = "";
+		if(!empty($exclude_list)){
+			$where = "srv.id not in (" . implode(",", $exclude_list) . ") and ";
+		}
+		$s_code = substr($code, 0, 4);
+		
+		$so_model = M(''); // 1.a
+		$so_sql = "select srv.id as services_id, so.id as so_id, so.money from cw_services as srv, cw_services_city as scity, cw_services_code as scode, cw_services_order as so where $where srv.id = scity.services_id and srv.id = scode.services_id and srv.id = so.services_id and srv.state = 0 and srv.grade > 4 and ((scity.code = $city_id1 and scity.state = 0) or (scity.code = $city_id2 and scity.state = 0)) and ((scode.code = '$code' or scode.code = '$s_code') and scode.state = 0 ) and so.violation = '$code' and (so.code = $city_id1 or so.code = $city_id2) group by srv.id order by money asc ";
+		//$log->write ( $so_sql );
+		$solist = $so_model->query($so_sql);
+		
+		$sd_model = M(''); // 1.b
+		$sd_sql = "select * from (select dyna.services_id, dyna.id as so_id, ($money + dyna.fee + dyna.point_fee * $points) dyna_fee from cw_services as srv, cw_services_city as scity, cw_services_code as scode, cw_services_dyna as dyna where  $where srv.id = scity.services_id and srv.id = scode.services_id and srv.id = dyna.services_id and srv.state = 0 and srv.grade > 4 and ((scity.code = $city_id1 and scity.state = 0) or (scity.code = $city_id2 and scity.state = 0)) and (scode.code = '$code' or scode.code = '$s_code') and scode.state = 0 and (dyna.code = $city_id1 or dyna.code = $city_id2) ORDER BY dyna_fee ASC) as service_dyna group by services_id order by dyna_fee asc";
+		//$log->write ( $sd_sql );
+		$sdlist = $sd_model->query($sd_sql);
+		
+		// we now get the lowest price
+		$lowest_price = -1;
+		$so_id = -1;
+		$so_type = -1;
+		if( ! empty($solist)){
+			$lowest_price = $solist[0]['money'];
+			$so_id = $solist[0]['so_id'];
+			$so_type = 1;
+		}
+		if( ! empty($sdlist)){
+			if($lowest_price > -1 ){
+				if($lowest_price > $sdlist[0]['dyna_fee']){
+					$lowest_price = $sdlist[0]['dyna_fee'];
+					$so_id = $sdlist[0]['so_id'];
+					$so_type = 2;
+				}
+			}
+			else{
+				$lowest_price = $sdlist[0]['dyna_fee'];
+				$so_id = $sdlist[0]['so_id'];
+				$so_type = 2;
+			}
+		}
+		//$log->write ( "lowest_price=". $lowest_price );
+		if($lowest_price == -1){
+			return $fuwu;
+		}
+		
+		$where = "";
+		$firstCondition = false;
+		$services_id_by_money = array ();
+		if( ! empty($solist)){
+			foreach ( $solist as $p => $c ) {
+				if($c['money'] == $lowest_price){
+					if ($firstCondition == false) {
+						$where .= " services_id = {$c['services_id']}";
+						$firstCondition = true;
+					} else {
+						$where .= " or services_id = {$c['services_id']}";
+					}
+					$services_id_by_money[] = $c['services_id'];
+				}
+				else{
+					break;
+				}
+			}
+		}
+		if( ! empty($sdlist)){
+			foreach ( $sdlist as $p => $c ) {
+				if($c['dyna_fee'] == $lowest_price){
+					if ($firstCondition == false) {
+						$where .= " services_id = '{$c['services_id']}'";
+						$firstCondition = true;
+					} else {
+						$where .= " or services_id = '{$c['services_id']}'";
+					}
+					$services_id_by_money[] = $c['services_id'];
+				}
+				else{
+					break;
+				}
+			}
+		}
+		$order_model = M(''); // 2
+		$sql = "SELECT COUNT(*) as nums, `services_id` FROM `cw_order` WHERE $where GROUP BY `services_id` ORDER BY nums";
+		//$log->write ( $sql);
+		$orderlist = $order_model->query ( $sql );
+		$services_id_by_ordernum = array ();
+		foreach ( $orderlist as $p => $c ) {
+			$services_id_by_ordernum [] = $c ['services_id'];
+		}
+		$services = array_diff ( $services_id_by_money, $services_id_by_ordernum );
+		if (! empty ( $services )) {
+			foreach ( $services as $r ) {
+				$services_id = $r;
+				break;
+			}
+		} else {
+			$services_id = $orderlist [0] ['services_id'];
+		}
+		//$log->write ( "services_id=". $services_id );
+		// 3
+		$fuwu['s_id'] = $services_id;
+		$fuwu['so_id'] = $so_id;
+		$fuwu['so_type'] = $so_type;
+		$fuwu['so_money'] = $lowest_price;
+		
+		return $fuwu;
+	}
+	
+	function push_order(){
+		$end_id = $_REQUEST['end_id'];
+		$this->__push_order($end_id);
+	}
+	
+	// 推送
+	function __push_order($end_id) {
+		$log = new Log();
+		$model = M ();
+		$r = $model->table ( "cw_order as o" )->join ( "cw_user as u on u.id=o.user_id" )->field ( "o.car_id, u.channel, u.channel_key")->where ( "o.endorsement_id = '$end_id'" )->find ();
+		if (! empty ( $r )) {
+			if($r["channel"] == 99){
+				$_model = M("");
+				$_result = $_model->query("select c.license_number, e.* from cw_endorsement e, cw_car c where e.id = $end_id and c.id = {$r['car_id']}");
+				$result = $_result[0];
+				
+				$bizapi_id = substr($r['channel_key'], 7);
+				$bizapi_model = M('bizapi');
+				$now = time();
+				$bizapi = $bizapi_model->where("id = $bizapi_id and state = 1 and expiration_time >= $now ")->find();
+				
+				if(!empty($bizapi)){
+					$target_url = $bizapi['app_domain'];
+					if(false === strpos($target_url, 'http://')){
+							$target_url = "http://" . $target_url;
+						}
+					$target_url = $target_url . "/api/weizhang/banlijieguo";
+					if($state == 1){
+						$state_desc = "未处理";
+					}
+					if($state == 3){
+						$state_desc = "处理中";
+					}
+					if($state == 4){
+						$state_desc = "已处理";
+					}
+					$post_data = array (
+						'chepai' => $result['license_number'],
+						'weizhangtime' => $result['time'],
+						'weizhangcity' => $result['area'],
+						'weizhangcode' => $result['code'],
+						'fajin' => $result['money'],
+						'fafen' => $result['points'],
+						'dingdanhao' => $order['order_sn'],
+						'banlizhuangtai' => $state_desc,
+						'timestamp' => time()
+						);
+					$log->write ( "target_url=" . $target_url, 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Ziniu/' . date ( 'y_m_d' ) . '.log' );
+					$log->write ( serialize ( http_build_query($post_data) ), 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Ziniu/' . date ( 'y_m_d' ) . '.log' );
+					$dataRes = $this->request_post($target_url, http_build_query($post_data));
+					$log->write ( serialize ( $dataRes ), 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Ziniu/' . date ( 'y_m_d' ) . '.log' );
+				}
+			}
+		}
+	}
 }
