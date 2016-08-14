@@ -20,6 +20,19 @@ class ApiController extends BizapibaseController {
         exit(json_encode($data, $json_option));
 	}
 	
+	public function sendFinalJsonResult($openid, $carHash, $passthruQuery, $handleTime, $json_option=0){
+		$data = array (
+			'fanhuicode' => 1000,
+			'openid' => $openid,
+			'cheliangzhiwen' => $carHash,
+			'touchuanstring' => $passthruQuery,
+			'timestamp' => time(),
+			'handletime' => $handleTime
+			);
+		header('Content-Type:application/json; charset=utf-8');
+        exit(json_encode($data, $json_option));
+	}
+	
 	function index() {
 		$this->display();
 	}
@@ -39,8 +52,10 @@ class ApiController extends BizapibaseController {
 		$licNumber = $_REQUEST ['chepaihao'];
 		$frameNumber = $_REQUEST ['chejiahao'];
 		$engineNumber = $_REQUEST ['fadongjihao'];
+		$openid = $_REQUEST ['openid'];
 		$holderName = $_REQUEST ['chezhumingcheng'];
 		$holderPhone = $_REQUEST ['chezhudianhua'];
+		$holderCity = $_REQUEST ['yonghuchengshi'];		
 		$appId = $_REQUEST ['APPID'];
 		$appKey = $_REQUEST ['APPKEY'];
 		$timestamp = $_REQUEST ['timestamp'];
@@ -95,6 +110,32 @@ class ApiController extends BizapibaseController {
 		// start transaction
 		$_start = microtime(TRUE);
 		
+		// create the bizapi user
+		$user_model = D ( "User" );
+		if(!empty($openid)){
+			$user = $user_model->where("openid='$openid'")->find();
+			if(empty($user)){
+				$this->sendJsonResult(3009, $passthruQuery, 0);
+			}
+			$user_id = $user['id'];
+		}
+		else{
+			$data = array ();
+			$data ['group_id'] = 90;
+			$username = "BIZAPI_USER_" . microtime(TRUE) . "." . mt_rand(0,1000);
+			$data ['username'] = $username;
+			$data ['nickname'] = $username;
+			$openid = md5($username);
+			$data ['openid'] = $openid;
+			$data ['bizid'] = $openid;
+			$data ['is_att'] = 0;
+			$data ['create_time'] = time ();
+			$data ['channel'] = self::$channel;
+			$data ['channel_key'] = "BIZAPI_" . $bizapi["id"];
+			$user_model->add ( $data );
+			$user_id = $user_model->getLastInsID ();
+		}
+		
 		// save car if not exist, any channel
 		$data = array ();
 		$data ['license_number'] = $licRegion . strtoupper ( $licNumber );
@@ -103,7 +144,9 @@ class ApiController extends BizapibaseController {
 		$car_model = M ( "Car" );
 		$car = $car_model->where ( $data )->find ();
 		$newcar = false;
+		$carHash = md5($data ['license_number'] . $data ['frame_number'] . $data ['engine_number']);
 		if (empty ( $car )) {
+			$data ['hash'] = $carHash;
 			$data ['create_time'] = time ();
 			$data ['channel'] = self::$channel;
 			$data ['channel_key'] = "BIZAPI_" . $bizapi["id"];
@@ -114,23 +157,6 @@ class ApiController extends BizapibaseController {
 		else{
 			$car_id = $car["id"];
 		}
-		
-		// create the bizapi user
-		$user_model = D ( "User" );
-		$data = array ();
-		$data ['group_id'] = 90;
-		$username = "BIZAPI_USER_" . time();
-		$data ['username'] = $username;
-		$data ['nickname'] = $username;
-		$openid = md5($username);
-		$data ['openid'] = $openid;
-		$data ['bizid'] = $openid;
-		$data ['is_att'] = 0;
-		$data ['create_time'] = time ();
-		$data ['channel'] = self::$channel;
-		$data ['channel_key'] = "BIZAPI_" . $bizapi["id"];
-		$user_model->add ( $data );
-		$user_id = $user_model->getLastInsID ();
 		
 		// check the bizapi has already subcribe the car, create new user if not.
 		$uc_model = M ( "User_car" );
@@ -157,8 +183,97 @@ class ApiController extends BizapibaseController {
 		else{
 			$this->send($car_id, $licRegion, $licNumber, $openid, $bizapi['app_domain']);
 		}
+		$this->sendFinalJsonResult($openid, $carHash, $passthruQuery, $_handle);
+	}
+	
+	function tuiding() {
+		$log = new Log();
+		$log->write(json_encode($_REQUEST));
+		// read input
+		$carHash = $_REQUEST ['cheliangzhiwen'];
+		$openid = $_REQUEST ['openid'];
+		$appId = $_REQUEST ['APPID'];
+		$appKey = $_REQUEST ['APPKEY'];
+		$timestamp = $_REQUEST ['timestamp'];
+		$passthruQuery = $_REQUEST ['touchuancanshu'];
+		// valid input
+		if($carHash == ""){
+			$this->sendJsonResult(3007, $passthruQuery, 0);
+		}
+		if($openid == ""){
+			$this->sendJsonResult(3009, $passthruQuery, 0);
+		}
+		if($timestamp == ""){
+			$this->sendJsonResult(2004, $passthruQuery, 0);
+		}
+		if($appId == "" || $appKey == ""){
+			$this->sendJsonResult(2005, $passthruQuery, 0);
+		}
+		
+		$bizapi_model = M ( "bizapi" );
+		$now = time ();
+		$bizapi = $bizapi_model -> where(" app_id = '$appId' and state = 1 and expiration_time >= $now ") ->find();
+		if(empty($bizapi)){
+			$this->sendJsonResult(2001, $passthruQuery, 0);
+		}
+		else{
+			if($bizapi['app_key'] != $appKey){
+				$this->sendJsonResult(2002, $passthruQuery, 0);
+			}
+		}
+		
+		// start transaction
+		$_start = microtime(TRUE);
+		
+		$user_model = D ( "User" );
+		$user = $user_model->where("openid='$openid'")->find();
+		if(empty($user)){
+			$this->sendJsonResult(3009, $passthruQuery, 0);
+		}
+		else{
+			$user_id = $user['id'];
+		}
+		
+		$data = array ();
+		$data ['hash'] = $carHash;
+		$car_model = M ( "Car" );
+		$car = $car_model->where ( $data )->find ();
+		if (empty ( $car )) {
+			$this->sendJsonResult(3007, $passthruQuery, 0);
+		}
+		else{
+			$car_id = $car["id"];
+		}
+		
+		// check the bizapi has already subcribe the car, create new user if not.
+		$uc_model = M ( "User_car" );
+		$data = array (
+			"user_id" => $user_id,
+			"car_id" => $car_id
+			);
+		$uc = $uc_model->where ( $data )->find ();
+		if(empty ( $uc )) {
+			$this->sendJsonResult(3008, $passthruQuery, 0);
+		}
+		else{
+			$data = array (
+				"is_sub" => 1
+				);
+			$uc_model->where ( "id={$uc['id']}" )->save($data);
+		}
+		
+		// end transaction
+		$_end = microtime(TRUE);
+		$_handle = number_format($_end - $_start, 4);
+		
+		$data = array (
+			"last_time" => time()
+			);
+		$bizapi_model -> where(" id = {$bizapi['id']}") -> save($data);
+		
 		$this->sendJsonResult(1000, $passthruQuery, $_handle);
 	}
+	
 	
 	function scan_and_send($car_id, $licRegion, $licNumber, $openid, $bizapi_app_domain){
 		$this->scan_api ( $car_id);
@@ -206,7 +321,7 @@ class ApiController extends BizapibaseController {
 
 		$endorsement_model = M ( "Endorsement" );
 		$where = array (
-				"car_id" => $car_id,
+				"license_number" => $licRegion . $licNumber,
 				"is_manage" => 0 
 		);
 		$endorsement = $endorsement_model->field ( "count(*) as nums, sum(points) as all_points, sum(money) as all_money" )->where ( $where )->find ();
@@ -248,7 +363,187 @@ class ApiController extends BizapibaseController {
 		$model->add ( $data );
 	}
 	
+	function addQueryLog($appId, $carHash, $condition, $code){
+		$model = M("bizapi_query");
+		$data = array (
+			"channel" => $appId,
+			"c_time" => time(),
+			"car_hash" => $carHash,
+			"condition" => $condition,
+			"result" => $code
+			);
+		$model->add($data);
+	}
+	
+	function sendQueryResult($appId, $carHash, $condition, $code, $passthruQuery, $handleTime, $json_option = 0){
+		$this->addQueryLog($appId, $carHash, $condition, $code);
+		$this->sendJsonResult($code, $passthruQuery, $handleTime, $json_option);
+	}
+	
+	function weizhangQuery() {
+		$log = new Log();
+		$log->write(json_encode($_REQUEST));
+		// read input
+		$carHash = $_REQUEST ['cheliangzhiwen'];
+		$condition = $_REQUEST ['chulizhuangtai'];
+		if($condition == ""){
+			$condition = "TOTAL_UNPAY";
+		}
+		$appId = $_REQUEST ['APPID'];
+		$appKey = $_REQUEST ['APPKEY'];
+		$timestamp = $_REQUEST ['timestamp'];
+		//$sign = $_REQUEST ['qianming'];
+		$passthruQuery = $_REQUEST ['touchuancanshu'];
+		// valid input
+		if($carHash == ""){
+			$this->sendQueryResult($appId, $carHash, $condition, 3007, $passthruQuery, 0);
+		}
+		$data = array ();
+		$data ['hash'] = $carHash;
+		$car_model = M ( "Car" );
+		$car = $car_model->where ( $data )->find ();
+		if (empty ( $car )) {
+			$this->sendQueryResult($appId, $carHash, $condition, 3007, $passthruQuery, 0);
+		}
+		
+		if($timestamp == ""){
+			$this->sendQueryResult($appId, $carHash, $condition, 2004, $passthruQuery, 0);
+		}
+		if($appId == "" || $appKey == ""){
+			$this->sendQueryResult($appId, $carHash, $condition, 2005, $passthruQuery, 0);
+		}
+		
+		$bizapi_model = M ( "bizapi" );
+		$now = time();
+		$bizapi = $bizapi_model -> where(" app_id = '$appId' and state = 1 and expiration_time >= $now ") ->find();
+		if(empty($bizapi)){
+			$this->sendQueryResult($appId, $carHash, $condition, 2001, $passthruQuery, 0);
+		}
+		else{
+			if($bizapi['app_key'] != $appKey){
+				$this->sendQueryResult($appId, $carHash, $condition, 2002, $passthruQuery, 0);
+			}
+		}
+		// start transaction
+		$_start = microtime(TRUE);
+		
+		$pay_type = 1;
+		$with_year = false;
+		if($condition == "TOTAL_UNPAY"){
+			$pay_type = 1;
+			$with_year = false;
+		}
+		if($condition == "TOTAL_PAID"){
+			$pay_type = 2;
+			$with_year = false;
+		}
+		if($condition == "TOTAL_ALL"){
+			$pay_type = 0;
+			$with_year = false;
+		}
+		if($condition == "THISYEAR_UNPAY"){
+			$pay_type = 1;
+			$with_year = true;
+		}
+		if($condition == "THISYEAR_PAID"){
+			$pay_type = 2;
+			$with_year = true;
+		}
+		if($condition == "TOTAL_ALL"){
+			$pay_type = 0;
+			$with_year = true;
+		}
+		
+		$where = "license_number = '{$car['license_number']}'";
+
+		if($pay_type == 1){
+			$where .= " and is_manage = 0"; 
+		}
+		if($pay_type == 2){
+			$where .= " and is_manage = 2"; 
+		}
+		if($with_year){
+			$year = date("Y");
+			$thisyear = strtotime($year . "0101");
+			$where .= " and time >= $thisyear"; 
+		}
+		
+		$endorsement_model = M ( "Endorsement" );
+		$end = $endorsement_model->where($where)->select();
+		$end_list = array();
+		foreach ( $end as $k => $v ) {
+			$end_data = array();
+			$end_data["weizhangzhiwen"] = $v["hash"];
+			$end_data["chepaihao"] = urlencode($v["license_number"]);
+			$end_data["weizhangshijian"] = $v["time"];
+			$end_data["weizhangchengshi"] = urlencode($v["area"]);
+			$end_data["weizhangdaima"] = $v["code"];
+			$end_data["weizhangfajin"] = $v["points"];
+			$end_data["weizhangfafen"] = $v["money"];
+			$end_data["weizhangdidian"] = urlencode($v["address"]);
+			$end_data["weizhangshuoming"] = urlencode($v["content"]);
+			$manage_state = "未处理";
+			$daibanlink = "";
+			if($v["is_manage"] == 0){
+				$fuwu = $this->find_fuwu($car["id"], $v['code'], $v['money'], $v['points'], $v['area']);
+				if(!empty($fuwu)){
+					$wxUrl = "";
+					if(runEnv == 'production'){
+						$wxUrl = "http://weixin.xiaoxianlink.com";
+					}
+					elseif(runEnv == 'test'){
+						$wxUrl = "http://wxdev.xiaoxianlink.com";
+					}
+					else{
+						$wxUrl = "http://wx.xiaoxian.com";
+					}
+					$daibanlink = $wxUrl . "/index.php?g=weixin&m=scan&a=scan_info&id=".$v['id']."&car_id=".$car["id"]."&license_number=". urlencode($v ['license_number'] ) ."&so_id=".$fuwu['so_id']."&so_type=".$fuwu['so_type']."&user_id=";
+				}
+			}
+			if($v["is_manage"] == 1){
+				$manage_state = "处理中";
+			}
+			if($v["is_manage"] == 2){
+				$manage_state = "已处理";
+			}
+			$end_data["shifouchuli"] = urlencode($manage_state);
+			$end_data["daibanlink_wexin"] = $daibanlink;
+			$end_list[] = $end_data;
+		}
+		
+		$scan_state = "正常扫描";
+		if($car["scan_state"] == 0){
+			$scan_state = "停止扫描: " . $car["scan_state_desc"];
+		}
+		
+		// end transaction
+		$_end = microtime(TRUE);
+		$_handle = number_format($_end - $_start, 4);
+		
+		$data = array (
+			"last_time" => time()
+			);
+		$bizapi_model -> where(" id = {$bizapi['id']}") -> save($data);
+		
+		$this->addQueryLog($appId, $carHash, $condition, 4000);
+		
+		$data = array (
+			'fanhuicode' => 4000,
+			"cheliangzhiwen" => $car["hash"],
+			"shaomiaoshuoming" => urlencode($scan_state),
+			"weizhangliebiao" => $end_list,
+			"timestamp" => time (),
+			'handletime' => $_handle,
+			"touchuangstring" => ($passthruQuery)? $passthruQuery :""
+			);
+			
+		header('Content-Type:application/json; charset=utf-8');
+        exit(json_encode($data, $json_option));
+	}
+	
 	function orderQuery() {
+		$log = new Log();
+		$log->write(json_encode($_REQUEST));
 		// read input
 		$orderSN = $_REQUEST ['dingdanhao'];
 		$appId = $_REQUEST ['APPID'];
@@ -294,7 +589,7 @@ class ApiController extends BizapibaseController {
 		}
 		
 		$_model = M("");
-		$_result = $_model->query("select c.license_number, e.* from cw_endorsement e, cw_car c where e.id = {$order['endorsement_id']} and c.id = {$order['car_id']}");
+		$_result = $_model->query("select e.* from cw_endorsement e where e.id = {$order['endorsement_id']}");
 		$result = $_result[0];
 		
 		// end transaction
@@ -451,7 +746,7 @@ class ApiController extends BizapibaseController {
 						else{
 							$wxUrl = "http://wx.xiaoxian.com";
 						}
-						$post_data['daibanlink'] = $wxUrl . "/index.php?g=weixin&m=scan&a=scan_info&id=".$end_info['id']."&license_number=". urlencode($car_info ['license_number'] ) ."&so_id=".$fuwu['so_id']."&so_type=".$fuwu['so_type']."&user_id=".$p['id'];
+						$post_data['daibanlink'] = $wxUrl . "/index.php?g=weixin&m=scan&a=scan_info&id=".$end_info['id']."&car_id=".$car_id."&license_number=". urlencode($car_info ['license_number'] ) ."&so_id=".$fuwu['so_id']."&so_type=".$fuwu['so_type']."&user_id=".$p['id'];
 					}
 					$log->write ( "target_url= " . $target_url, 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
 					$log->write ( serialize ( http_build_query($post_data) ), 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
@@ -496,7 +791,16 @@ class ApiController extends BizapibaseController {
 		);
 		$car_model = M ( "Car" );
 		$car = $car_model->where ( $where )->find ();
-		$l_nums = mb_substr ( $car ['license_number'], 0, 2, 'utf-8' );
+		
+		$a_class = array("京", "沪", "津", "渝");
+		$l_nums = "";
+		$l_nums_a = mb_substr ( $car ['license_number'], 0, 1, 'utf-8' );
+		if(in_array($l_nums_a, $a_class)){
+			$l_nums = $l_nums_a;
+		}
+		else{
+			$l_nums = mb_substr ( $car ['license_number'], 0, 2, 'utf-8' );
+		}
 		$region_model = M ( "Region" );
 		$region = $region_model->where ( "nums = '$l_nums'" )->find ();
 		$region = $region_model->where ( "city = '{$region['city']}'" )->order ( "id" )->find ();
@@ -627,11 +931,11 @@ class ApiController extends BizapibaseController {
 	function __push_order($end_id) {
 		$log = new Log();
 		$model = M ();
-		$r = $model->table ( "cw_order as o" )->join ( "cw_user as u on u.id=o.user_id" )->field ( "o.car_id, u.channel, u.channel_key")->where ( "o.endorsement_id = '$end_id'" )->find ();
+		$r = $model->table ( "cw_order as o" )->join ( "cw_user as u on u.id=o.user_id" )->field ( "u.channel, u.channel_key")->where ( "o.endorsement_id = '$end_id'" )->find ();
 		if (! empty ( $r )) {
 			if($r["channel"] == 99){
 				$_model = M("");
-				$_result = $_model->query("select c.license_number, e.* from cw_endorsement e, cw_car c where e.id = $end_id and c.id = {$r['car_id']}");
+				$_result = $_model->query("select e.* from cw_endorsement e where e.id = $end_id");
 				$result = $_result[0];
 				
 				$bizapi_id = substr($r['channel_key'], 7);

@@ -38,6 +38,7 @@ $post_data = array (
 		"chepaihao" => $licNumber,
 		"chejiahao" => $frameNumber,
 		"fadongjihao" => $engineNumber,
+		"openid" => '123456',
 		"APPID" => $appId,
 		"APPKEY" => $appKey,
 		"chezhumingcheng" => $holderName,
@@ -46,9 +47,30 @@ $post_data = array (
 		"qianming" => $sign,
 		"touchuanstring" => $passthruQuery
 	);
-
 $target_url = "http://testapi.xiaoxianlink.com/api/weizhang/cheliangdingyue";
-//$result = request_post($target_url, $post_data);
-//echo $result; 
-echo $sign;
+//$target_url = "http://ba.xiaoxian.com/api/weizhang/cheliangdingyue";
+/*
+$post_data = array (
+		"cheliangzhiwen" => "e1c61b6984426246c84fcd314fcda54b",
+		"APPID" => $appId,
+		"APPKEY" => $appKey,
+		"timestamp" => $timestamp,
+		"touchuancanshu" => $passthruQuery
+	);
+//$target_url = "http://ba.xiaoxian.com/api/weizhang/weizhangchaxun";
+$target_url = "http://testapi.xiaoxianlink.com/api/weizhang/weizhangchaxun";
+/*
+$post_data = array (
+		"cheliangzhiwen" => "1e0310a1a377cac55d1381fa4c48391d",
+		"openid" => "058b5694fdd1e1448ef990c37ab65450",
+		"APPID" => $appId,
+		"APPKEY" => $appKey,
+		"timestamp" => $timestamp,
+		"touchuancanshu" => $passthruQuery
+	);
+$target_url = "http://ba.xiaoxian.com/api/weizhang/weizhangtuiding";
+*/
+$result = request_post($target_url, $post_data);
+echo $result; 
+//echo $sign;
 ?>
