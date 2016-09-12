@@ -478,8 +478,8 @@ class ApiController extends BizapibaseController {
 			$end_data["weizhangshijian"] = $v["time"];
 			$end_data["weizhangchengshi"] = urlencode($v["area"]);
 			$end_data["weizhangdaima"] = $v["code"];
-			$end_data["weizhangfajin"] = $v["points"];
-			$end_data["weizhangfafen"] = $v["money"];
+			$end_data["weizhangfajin"] = $v["money"];
+			$end_data["weizhangfafen"] = $v["points"];
 			$end_data["weizhangdidian"] = urlencode($v["address"]);
 			$end_data["weizhangshuoming"] = urlencode($v["content"]);
 			$manage_state = "未处理";
