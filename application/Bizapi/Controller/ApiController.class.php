@@ -257,7 +257,8 @@ class ApiController extends BizapibaseController {
 		}
 		else{
 			$data = array (
-				"is_sub" => 1
+				"is_sub" => 1,
+				"c_time" => $now
 				);
 			$uc_model->where ( "id={$uc['id']}" )->save($data);
 		}
@@ -702,6 +703,7 @@ class ApiController extends BizapibaseController {
 			return false;
 		}
 		$log->write ( "senddata---------------------------" . json_encode ( $end_info ), 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
+		$now = time();
 		$car_model = M ( "Car" );
 		$car_info = $car_model->where ( "id='$car_id'" )->find ();
 		$user_model = M ();
@@ -711,7 +713,7 @@ class ApiController extends BizapibaseController {
 			if($p['channel'] == 99){
 				$bizapi_id = substr($p['channel_key'], 7);
 				$bizapi_model = M('bizapi');
-				$bizapi = $bizapi_model->where("id = $bizapi_id")->find();
+				$bizapi = $bizapi_model->where("id = $bizapi_id and state = 1 and expiration_time >= $now ")->find();
 				if(!empty($bizapi)){
 					$target_url = $bizapi['app_domain'];
 					if(false === strpos($target_url, 'http://')){
@@ -752,19 +754,20 @@ class ApiController extends BizapibaseController {
 					$log->write ( serialize ( http_build_query($post_data) ), 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
 					$dataRes = $this->request_post($target_url, http_build_query($post_data));
 					$log->write ( serialize ( $dataRes ), 'DEBUG', '', dirname ( $_SERVER ['SCRIPT_FILENAME'] ) . '/Logs/Bizapi/' . date ( 'y_m_d' ) . '.log' );
+					
+					$data = array (
+						"from_userid" => 0,
+						"openid" => $p ['openid'],
+						"tar_id" => $end_info ['id'],
+						"create_time" => time (),
+						"msg_type" => 2,
+						"nums" => 1,
+						"all_points" => $end_info ['points'],
+						"all_money" => $end_info ['money'] 
+					);
+					$model = M ( "Message" );
+					$model->add ( $data );
 				}
-				$data = array (
-					"from_userid" => 0,
-					"openid" => $p ['openid'],
-					"tar_id" => $end_info ['id'],
-					"create_time" => time (),
-					"msg_type" => 2,
-					"nums" => 1,
-					"all_points" => $end_info ['points'],
-					"all_money" => $end_info ['money'] 
-				);
-				$model = M ( "Message" );
-				$model->add ( $data );
 			}
 		}
 	}
